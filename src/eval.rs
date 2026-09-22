@@ -12,7 +12,8 @@
 //!   keystroke, the keystrokes saved.
 //!
 //! A suggestion is right when it is exactly what was typed next, up to the end
-//! of a word. ble.sh's history source suggests whole lines; it is scored on the
+//! of a word or a `/` inside one; a blank alone does not count. ble.sh's history
+//! source suggests whole lines; it is scored on the
 //! part up to the end of the first word, which is what accepting word by word
 //! (`M-f`) takes.
 //!
@@ -239,15 +240,19 @@ fn measure(command: &str, suggest: &mut dyn FnMut(&str) -> Option<Edit>, m: &mut
 }
 
 /// Where the cursor ends up when `edit`, suggested with `command[..offset]`
-/// typed, is exactly what came next up to the end of a word.
+/// typed, is exactly what came next up to the end of a word, or up to a `/`
+/// inside one: accepting a path one component at a time is progress too.
 fn accepted(command: &str, offset: usize, edit: &Edit) -> Option<usize> {
     let (start, text) = match edit {
         Edit::Append(text) => (offset, text),
         Edit::Replace(word) => (lexer::current_word_start(&command[..offset]), word),
     };
     let end = start + text.len();
-    (command.get(start..end) == Some(text.as_str()) && end > offset && ends_word(command, end))
-        .then_some(end)
+    (command.get(start..end) == Some(text.as_str())
+        && end > offset
+        && !text.trim().is_empty()
+        && (ends_word(command, end) || text.ends_with('/')))
+    .then_some(end)
 }
 
 /// Whether a word of `command` ends at byte `end`.
@@ -378,6 +383,19 @@ mod tests {
             accepted("bleopt x", 5, &Edit::Replace("bleopt".to_owned())),
             Some(6)
         );
+    }
+
+    #[test]
+    fn a_path_component_is_accepted_and_a_blank_is_not() {
+        assert_eq!(
+            accepted("cat docs/notes.md", 5, &Edit::Append("ocs/".to_owned())),
+            Some(9)
+        );
+        assert_eq!(
+            accepted("cat docs/notes.md", 5, &Edit::Append("ocs/no".to_owned())),
+            None
+        );
+        assert_eq!(accepted("ls  -l", 3, &Edit::Append(" ".to_owned())), None);
     }
 
     #[test]

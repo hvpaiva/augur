@@ -330,7 +330,9 @@ fn print_report(strategies: &[Strategy], results: &[Metrics], skipped: usize) {
     }
     println!();
     println!("coverage  positions with a suggestion, measured after every typed character");
-    println!("accuracy  suggestions that were exactly the rest of the word, or the next word");
+    println!(
+        "accuracy  suggestions that were exactly the rest of the word or path component, or the next word"
+    );
     println!("useful    positions with a right suggestion");
     println!("saved     keystrokes saved accepting right suggestions with →");
 }

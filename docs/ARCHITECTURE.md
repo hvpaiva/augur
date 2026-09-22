@@ -61,7 +61,11 @@ In order, for the word under the cursor:
 1. The likeliest word the history supports, from `TokenModel::predict`. A word
    the completion also offers weighs 1.5 times more and is always shown. One it
    does not offer must reach a probability of 0.5 (0.4 for a whole next word),
-   and must not name a missing file.
+   must not name a missing file, and when it is a path is shown one component
+   at a time: `docs/` first, then `notes/`, then `todo.md`. In a replayed
+   history, a path suggested whole from the history was right in 51% of cases
+   and a sibling of the path being typed in the rest, while a component was
+   right in 82%.
 2. Otherwise, a word the completion offers. With one candidate, that one. With
    several, the language model chooses, and the shortest stands in when the
    model does not answer. Two restrictions apply when nothing of the word has
@@ -96,7 +100,9 @@ in every other.
 `tokens.rs` splits past commands into simple commands and those into words, and
 counts each word in the contexts it appeared in, from the exact words before it
 down to any argument of the same command. Prediction mixes the distributions of
-the contexts that have data. Counts decay with a half-life, and commands that
+the contexts that have data. When none has a word starting with what has been
+typed, and three or more characters have been, the arguments of every other
+command are consulted, so the file read with `cat` is offered to `vim`. Counts decay with a half-life, and commands that
 failed weigh less. Only the first 64 words of a simple command are learned. The
 module documentation lists the contexts and their weights.
 

@@ -40,6 +40,12 @@ careful about which ones it shows:
 - A guess no completion backs, from the history or the model, shows only when it
   is likely enough, and never when it names a file that is not there. The
   `notes.txt` you read in another directory is not suggested in this one.
+- A path guessed from the history comes one component at a time, `docs/` then
+  `notes/` then `todo.md`, because the path you typed before is as often a
+  sibling of the one you are typing as the path itself.
+- A word never used with this command but used with another is suggested once
+  three characters of it are typed: the file you read with `cat` is offered to
+  `vim`.
 
 augur prefers showing nothing to showing a guess it has no reason for.
 
@@ -140,14 +146,14 @@ time against models that only know the commands before it, and compares augur
 with ble.sh's history source at the same positions:
 
 ```
-measured 572 commands, 19480 characters
+measured 575 commands, 19512 characters
 
 strategy         coverage  accuracy    useful     saved    latency
-ble.sh history      45.3%     77.3%     35.0%     26.0%        1µs
-augur               49.5%     78.9%     39.1%     30.2%        4µs
+ble.sh history      45.3%     76.7%     34.8%     25.9%        1µs
+augur               54.2%     82.6%     44.8%     32.9%        4µs
 
 coverage  positions with a suggestion, measured after every typed character
-accuracy  suggestions that were exactly the rest of the word, or the next word
+accuracy  suggestions that were exactly the rest of the word or path component, or the next word
 useful    positions with a right suggestion
 saved     keystrokes saved accepting right suggestions with →
 ```

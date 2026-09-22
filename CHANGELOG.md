@@ -9,7 +9,9 @@ two builds apart: the shell integration and the engine must speak the same one.
 First public version. Protocol 2.
 
 - Word-by-word suggestions for ble.sh's auto-complete, from the shell's
-  completion, the command history and an optional local language model.
+  completion, the command history and an optional local language model. Paths
+  guessed from the history come one component at a time, and the arguments of
+  other commands are consulted when the command's own history has nothing.
 - A history log with the directory, session, exit status and duration of every
   command, and `augur import` to start it from `~/.bash_history`.
 - Correction of mistyped command names.

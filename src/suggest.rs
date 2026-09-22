@@ -1037,20 +1037,28 @@ mod tests {
 
     #[test]
     fn suggests_files_the_history_points_at_or_a_prefix_selects() {
-        let mut engine = engine(&["cat Cargo.toml", "cat Cargo.toml"]);
+        let mut reader = engine(&["cat Cargo.toml", "cat Cargo.toml"]);
         let files = [".git", "Cargo.lock", "Cargo.toml"];
         assert_eq!(
-            ready(plan_files(&mut engine, "cat ", &files)),
+            ready(plan_files(&mut reader, "cat ", &files)),
             append_edit("Cargo.toml")
         );
-        let Plan::Ask { fallback, .. } = plan_files(&mut engine, "less Carg", &files) else {
+        // less never took Cargo.toml, but cat did, and a prefix was typed.
+        assert_eq!(
+            ready(plan_files(&mut reader, "less Carg", &files)),
+            append_edit("o.toml")
+        );
+        assert_eq!(
+            ready(plan_files(&mut reader, "less .g", &files)),
+            append_edit("it")
+        );
+        // With no history for the word, the model chooses; the shortest
+        // candidate stands in.
+        let mut unrelated = engine(&["git status"]);
+        let Plan::Ask { fallback, .. } = plan_files(&mut unrelated, "less Carg", &files) else {
             panic!("expected a question");
         };
         assert_eq!(fallback.map(|s| s.edit), append_edit("o.lock"));
-        assert_eq!(
-            ready(plan_files(&mut engine, "less .g", &files)),
-            append_edit("it")
-        );
     }
 
     #[test]

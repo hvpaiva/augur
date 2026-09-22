@@ -24,6 +24,11 @@
 //! (`dir_start`) or repository (`repo_start`), the commands that followed the
 //! previous one (`follows`: across `|`, `&&` or consecutive lines of a
 //! session), and all commands (`start`).
+//!
+//! When none of these contexts holds a word starting with what has been typed,
+//! and at least [`MIN_ANY_PREFIX`] characters of it have been, the arguments of
+//! every other command are consulted (`any`): the file read with `cat` is
+//! offered to `vim`.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -37,6 +42,11 @@ use crate::repo::RepoLookup;
 /// one are hashed again for every word, so a pasted line of thousands of words
 /// would cost seconds at every start of the engine, and nobody types its end.
 const MAX_LEARNED_WORDS: usize = 64;
+
+/// Characters of a word that must be typed before the arguments of other
+/// commands are consulted. Shorter, too many of them match for the argument of
+/// an unrelated command to be a reasonable guess.
+pub const MIN_ANY_PREFIX: usize = 3;
 
 /// Mixture weight of each context described in the [module documentation](self).
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +217,11 @@ impl TokenModel {
                 .collect();
             let place = Place { dir, repo, follows };
             for i in 0..ids.len() {
-                for key in keys(&ids[..i], &place) {
+                let mut keys = keys(&ids[..i], &place);
+                if i > 0 {
+                    keys.push(Key::Any);
+                }
+                for key in keys {
                     let stat = self
                         .table
                         .entry(key)
@@ -252,23 +266,11 @@ impl TokenModel {
         let mut scores: HashMap<usize, f64> = HashMap::new();
         let mut total_weight = 0.0;
         for key in keys(&ids, &place) {
-            let Some(counts) = self.table.get(&key) else {
-                continue;
-            };
-            let matching: Vec<(usize, f64)> = counts
-                .iter()
-                .filter(|&(&word, _)| self.words.name(word).starts_with(partial))
-                .map(|(&word, stat)| (word, self.strength(stat)))
-                .collect();
-            let mass: f64 = matching.iter().map(|&(_, strength)| strength).sum();
-            if mass <= 0.0 {
-                continue;
-            }
-            let weight = self.weight(&key);
-            for (word, strength) in matching {
-                *scores.entry(word).or_default() += weight * strength / mass;
-            }
-            total_weight += weight;
+            total_weight += self.gather(&key, partial, &mut scores);
+        }
+        if scores.is_empty() && !position.is_command() && partial.chars().count() >= MIN_ANY_PREFIX
+        {
+            total_weight += self.gather(&Key::Any, partial, &mut scores);
         }
         let mut ranked: Vec<(&str, f64)> = scores
             .into_iter()
@@ -314,6 +316,29 @@ impl TokenModel {
             .collect()
     }
 
+    /// Adds the distribution of `key`'s words starting with `partial` to
+    /// `scores`, scaled by the context's weight, and returns that weight; zero
+    /// when the context has no such word.
+    fn gather(&self, key: &Key, partial: &str, scores: &mut HashMap<usize, f64>) -> f64 {
+        let Some(counts) = self.table.get(key) else {
+            return 0.0;
+        };
+        let matching: Vec<(usize, f64)> = counts
+            .iter()
+            .filter(|&(&word, _)| self.words.name(word).starts_with(partial))
+            .map(|(&word, stat)| (word, self.strength(stat)))
+            .collect();
+        let mass: f64 = matching.iter().map(|&(_, strength)| strength).sum();
+        if mass <= 0.0 {
+            return 0.0;
+        }
+        let weight = self.weight(key);
+        for (word, strength) in matching {
+            *scores.entry(word).or_default() += weight * strength / mass;
+        }
+        weight
+    }
+
     fn strength(&self, stat: &Stat) -> f64 {
         let age = self.seq.saturating_sub(stat.last + 1) as f64;
         stat.count * (1.0 + (-age / self.params.half_life).exp2())
@@ -333,6 +358,8 @@ impl TokenModel {
             Key::RepoStart(_) => w.repo_start,
             Key::Follows(..) => w.follows,
             Key::Start => w.start,
+            // Consulted alone, so its weight only has to be positive.
+            Key::Any => 1.0,
         }
     }
 
@@ -364,6 +391,8 @@ enum Key {
     RepoStart(usize),
     Follows(usize, usize),
     Start,
+    /// An argument of any command.
+    Any,
 }
 
 /// Context shared by all the words of a simple command.
@@ -528,6 +557,29 @@ mod tests {
             top(&mut model, "kubectl -n db get ", "/p", "s").as_deref(),
             Some("pods")
         );
+    }
+
+    #[test]
+    fn falls_back_to_the_arguments_of_other_commands() {
+        let mut model = model(&[
+            ran("cat docs/notes.md", "/p", "s"),
+            ran("vim src/main.rs", "/p", "s"),
+            ran("vim src/lib.rs", "/p", "s"),
+        ]);
+        // vim never took a word starting with "doc"; cat did.
+        assert_eq!(
+            top(&mut model, "vim doc", "/p", "s").as_deref(),
+            Some("docs/notes.md")
+        );
+        // Two characters are too few to look beyond vim's own arguments.
+        assert_eq!(top(&mut model, "vim do", "/p", "s"), None);
+        // vim's own arguments come first while any of them matches.
+        assert_eq!(
+            top(&mut model, "vim src", "/p", "s").as_deref(),
+            Some("src/lib.rs")
+        );
+        // Command names are never taken from arguments.
+        assert_eq!(top(&mut model, "doc", "/p", "s"), None);
     }
 
     #[test]
